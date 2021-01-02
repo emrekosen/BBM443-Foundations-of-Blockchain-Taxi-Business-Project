@@ -69,7 +69,7 @@ contract TaxiBusiness {
     uint participationFee;
     
     // the 32 digit number ID of car
-    uint32 carID;
+    uint112 carID;
     
     // proposed car by the car dealer
     Proposal proposedCar;
@@ -101,7 +101,7 @@ contract TaxiBusiness {
     
     // modifier to check if caller is driver
     modifier isDriver() {
-        require(msg.sender != taxiDriver.id, "Caller is not driver");
+        require(msg.sender == taxiDriver.id, "Caller is not driver");
         _;
     }
     
@@ -121,7 +121,7 @@ contract TaxiBusiness {
         maintenanceFee = 10 ether;
         lastMaintenance = block.timestamp;
         participationFee = 20 ether;
-        
+
     }
     
     
@@ -178,7 +178,7 @@ contract TaxiBusiness {
     function purchaseCar() public isManager {
         require(balance >= proposedCar.price, "The business don't have enough ether");
         require(block.timestamp <= proposedCar.validTime, "The valid time exceeded");
-        require(proposedCar.approvalState >= participantCount / 2, "The proposal didn't approved more than half of the business");
+        require(proposedCar.approvalState >= (participantCount / 2) + 1, "The proposal didn't approved more than half of the business");
         balance -= proposedCar.price;
         if(!carDealer.send(proposedCar.price)){
             balance += proposedCar.price;
@@ -214,10 +214,11 @@ contract TaxiBusiness {
     function repurchaseCar() public payable isCarDealer {
         require(msg.value >= proposedRepurchase.price, "The sent ether is not enough");
         require(block.timestamp <= proposedRepurchase.validTime, "The valid time exceeded");
-        require(proposedRepurchase.approvalState >= participantCount / 2, "The proposal didn't approved more than half of the business");
+        require(proposedRepurchase.approvalState >= (participantCount / 2) + 1, "The proposal didn't approved more than half of the business");
         uint refund =  msg.value - proposedRepurchase.price;
         if(refund > 0) msg.sender.transfer(refund);
         balance += msg.value - refund;
+        carID = 0;
     }
     
     /**
@@ -226,7 +227,7 @@ contract TaxiBusiness {
      * resets votes for new voting
      */
     function proposeDriver(address payable driverAddress, uint salary) public isManager resetVotes {
-        require(taxiDriver.isApproved, "There is a taxi driver already!");
+        require(!taxiDriver.isApproved, "There is a taxi driver already!");
         taxiDriver = Driver(driverAddress, salary, 0, 0, false, block.timestamp);
     }
     
@@ -245,8 +246,9 @@ contract TaxiBusiness {
      * only manager can call this function
      */
     function setDriver() public isManager {
-        require(taxiDriver.isApproved, "There is a taxi driver already!");
-        require(taxiDriver.approvalState >= participantCount / 2, "The driver didn't approved more than half of the business");
+        require(!taxiDriver.isApproved, "There is a taxi driver already!");
+        require(taxiDriver.id != address(0), "There is no driver");
+        require(taxiDriver.approvalState >=  (participantCount / 2) + 1, "The driver didn't approved more than half of the business");
         taxiDriver.isApproved = true;
     }
     
@@ -255,7 +257,7 @@ contract TaxiBusiness {
      * only manager can call this function
      */
     function fireDriver() public isManager {
-        require(!taxiDriver.isApproved, "There is no driver!");
+        require(taxiDriver.isApproved, "There is no driver!");
         balance -= taxiDriver.salary;
         if(!taxiDriver.id.send(taxiDriver.salary)){
             balance += taxiDriver.salary;
@@ -277,8 +279,8 @@ contract TaxiBusiness {
      * only manager can call this function
      */
     function releaseSalary() public isManager {
-        require(!taxiDriver.isApproved, "There is no taxi driver");
-        require(block.timestamp - taxiDriver.lastSalaryTime >= 2629743, "Salary paid already for this month");
+        require(taxiDriver.isApproved, "There is no taxi driver");
+        require(block.timestamp - taxiDriver.lastSalaryTime >= 2629743, "1 month has not passed since the last payment");
         balance -= taxiDriver.salary;
         taxiDriver.currentBalance += taxiDriver.salary;
     }
@@ -300,7 +302,7 @@ contract TaxiBusiness {
      * only manager can call this function
      */
     function payCarExpenses() public isManager {
-        require(block.timestamp - lastMaintenance >= 15778463, "Expenses paid already");
+        require(block.timestamp - lastMaintenance >= 15778463, "6 month has not passed since the last payment");
         require(carID != 0, "There is no car to pay expense");
         balance -= maintenanceFee;
         if(!carDealer.send(maintenanceFee)){
