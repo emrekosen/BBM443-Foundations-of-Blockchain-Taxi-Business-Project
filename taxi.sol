@@ -117,7 +117,7 @@ contract TaxiBusiness {
         balance = 0;
         maintenanceFee = 10 ether;
         lastMaintenance = block.timestamp;
-        participationFee = 20 ether;
+        participationFee = 100 ether;
         
     }
     
