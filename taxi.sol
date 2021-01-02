@@ -65,6 +65,9 @@ contract TaxiBusiness {
     // last maintenance time for checking 6 months period
     uint lastMaintenance;
     
+    // last divident pay time
+    uint lastDividentPay;
+    
     // amount that participants needs to pay for entering business, fixed 100 Ether
     uint participationFee;
     
@@ -78,8 +81,9 @@ contract TaxiBusiness {
     Proposal proposedRepurchase;
     
     // votes for current proposal, used for check user whether voted or not
-    mapping (address => bool) votes;
-
+    mapping (address => bool) driverVotes;
+    mapping (address => bool) carVotes;
+    mapping (address => bool) repurchaseVotes;
     
     // modifier to check if caller is manager
     modifier isManager() {
@@ -105,21 +109,13 @@ contract TaxiBusiness {
         _;
     }
     
-    // resets vote count for new voting
-    modifier resetVotes() {
-        _;
-        for(uint i = 0; i < participantCount; i++){
-            votes[participantsAddresses[i]] = false;
-        }
-    }
-    
-    
     constructor() {
         participantsAddresses = new address[](9);
         manager = msg.sender;
         balance = 0;
         maintenanceFee = 10 ether;
         lastMaintenance = block.timestamp;
+        lastDividentPay = block.timestamp;
         participationFee = 20 ether;
 
     }
@@ -156,9 +152,13 @@ contract TaxiBusiness {
      * only car dealer can call this function
      * resets all votes in votes list with resetVotes modifier
     */
-    function carProposeToBusiness(uint32 id, uint price, uint validTime) public isCarDealer resetVotes {
+    function carProposeToBusiness(uint32 id, uint price, uint validTime) public isCarDealer{
         require(carID == 0, "There is already a car in business");
         proposedCar = Proposal(id, price, validTime, 0);
+        
+         for(uint i = 0; i < participantCount; i++){
+            carVotes[participantsAddresses[i]] = false;
+        }
     }
     
     /**
@@ -166,9 +166,9 @@ contract TaxiBusiness {
      * only participants can call this function 
      */
     function approvePurchaseCar() public isParticipant {
-        require(!votes[msg.sender], "You already voted");
+        require(!carVotes[msg.sender], "You already voted");
         proposedCar.approvalState += 1;
-        votes[msg.sender] = true;
+        carVotes[msg.sender] = true;
     }
     
     /**
@@ -192,9 +192,12 @@ contract TaxiBusiness {
      * only car dealer can call this function
      * resets votes for new voting
      */
-    function repurchaseCarPropose(uint32 id, uint price, uint validTime) public isCarDealer resetVotes {
+    function repurchaseCarPropose(uint32 id, uint price, uint validTime) public isCarDealer{
         require(carID == id, "This is not the businesses car");
         proposedRepurchase = Proposal(id, price, validTime, 0);
+         for(uint i = 0; i < participantCount; i++){
+            repurchaseVotes[participantsAddresses[i]] = false;
+        }
     }
     
     /**
@@ -202,9 +205,9 @@ contract TaxiBusiness {
      * only participants can call this function
      */
     function approveSellProposal() public isParticipant {
-        require(!votes[msg.sender], "You already voted");
+        require(!repurchaseVotes[msg.sender], "You already voted");
         proposedRepurchase.approvalState += 1;
-        votes[msg.sender] = true;
+        repurchaseVotes[msg.sender] = true;
     }
     
     /**
@@ -218,7 +221,7 @@ contract TaxiBusiness {
         uint refund =  msg.value - proposedRepurchase.price;
         if(refund > 0) msg.sender.transfer(refund);
         balance += msg.value - refund;
-        carID = 0;
+        delete carID;
     }
     
     /**
@@ -226,9 +229,12 @@ contract TaxiBusiness {
      * only manager can call this function
      * resets votes for new voting
      */
-    function proposeDriver(address payable driverAddress, uint salary) public isManager resetVotes {
+    function proposeDriver(address payable driverAddress, uint salary) public isManager{
         require(!taxiDriver.isApproved, "There is a taxi driver already!");
         taxiDriver = Driver(driverAddress, salary, 0, 0, false, block.timestamp);
+         for(uint i = 0; i < participantCount; i++){
+            driverVotes[participantsAddresses[i]] = false;
+        }
     }
     
     /**
@@ -236,9 +242,9 @@ contract TaxiBusiness {
      * only participants can call this function
      */
     function approveDriver() public isParticipant {
-        require(!votes[msg.sender], "You already voted");
+        require(!driverVotes[msg.sender], "You already voted");
         taxiDriver.approvalState += 1;
-        votes[msg.sender] = true;
+        driverVotes[msg.sender] = true;
     }
     
     /**
@@ -264,7 +270,7 @@ contract TaxiBusiness {
             revert();
         }
         
-        taxiDriver = Driver(address(0), 0, 0 , 0, false, block.timestamp);
+        delete taxiDriver;
     }
     
     /**
@@ -280,9 +286,11 @@ contract TaxiBusiness {
      */
     function releaseSalary() public isManager {
         require(taxiDriver.isApproved, "There is no taxi driver");
+        require(balance >= taxiDriver.salary, "Not enough balance to pay driver salary");
         require(block.timestamp - taxiDriver.lastSalaryTime >= 2629743, "1 month has not passed since the last payment");
         balance -= taxiDriver.salary;
         taxiDriver.currentBalance += taxiDriver.salary;
+        taxiDriver.lastSalaryTime = block.timestamp;
     }
     
     /**
@@ -304,6 +312,7 @@ contract TaxiBusiness {
     function payCarExpenses() public isManager {
         require(block.timestamp - lastMaintenance >= 15778463, "6 month has not passed since the last payment");
         require(carID != 0, "There is no car to pay expense");
+        require(balance >= maintenanceFee, "Not enough balance to pay expenses");
         balance -= maintenanceFee;
         if(!carDealer.send(maintenanceFee)){
             balance += maintenanceFee;
@@ -317,12 +326,14 @@ contract TaxiBusiness {
      * only manager can call this function
      */
     function payDividend() public isManager {
-        require(block.timestamp - lastMaintenance >= 15778463, "Dividends paid already");
+        require(block.timestamp - lastDividentPay >= 15778463, "Dividends paid already");
+        require(balance > 0, "Not enough balance");
         uint dividend = balance / participantCount;
         for(uint i = 0; i < participantCount; i++){
             participants[participantsAddresses[i]].balance += dividend;
             balance -= dividend;
         }
+        lastDividentPay = block.timestamp;
     }
     
     /**
