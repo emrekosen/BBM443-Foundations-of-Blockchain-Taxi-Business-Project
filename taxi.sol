@@ -41,9 +41,6 @@ contract TaxiBusiness {
     // addresses - participant mapping
     mapping (address => Participant) participants;
     
-    // participant count for approval state calculations	
-    uint participantCount;
-    
     // list of addresses of participants to use in vote counting
     address[] participantsAddresses;
     
@@ -110,13 +107,12 @@ contract TaxiBusiness {
     }
     
     constructor() {
-        participantsAddresses = new address[](9);
         manager = msg.sender;
         balance = 0;
         maintenanceFee = 10 ether;
         lastMaintenance = block.timestamp;
         lastDividentPay = block.timestamp;
-        participationFee = 20 ether;
+        participationFee = 100 ether;
 
     }
     
@@ -127,12 +123,11 @@ contract TaxiBusiness {
      * excess ether will be returned
      */
     function join() public payable {
-        require(participantCount < 9, "No more place to join");
+        require(participantsAddresses.length < 9, "No more place to join");
         require(participants[msg.sender].adr == address(0), "You already joined");
         require(msg.value >= participationFee, "Not enough ether to join");
         participants[msg.sender] = Participant(msg.sender, 0 ether);
-        participantsAddresses[participantCount] = msg.sender;
-        participantCount++;
+        participantsAddresses.push(msg.sender);
         balance += participationFee;
         uint refund = msg.value - participationFee;
         if(refund > 0) msg.sender.transfer(refund);
@@ -156,7 +151,7 @@ contract TaxiBusiness {
         require(carID == 0, "There is already a car in business");
         proposedCar = Proposal(id, price, validTime, 0);
         
-         for(uint i = 0; i < participantCount; i++){
+         for(uint i = 0; i < participantsAddresses.length; i++){
             carVotes[participantsAddresses[i]] = false;
         }
     }
@@ -178,7 +173,7 @@ contract TaxiBusiness {
     function purchaseCar() public isManager {
         require(balance >= proposedCar.price, "The business don't have enough ether");
         require(block.timestamp <= proposedCar.validTime, "The valid time exceeded");
-        require(proposedCar.approvalState >= (participantCount / 2) + 1, "The proposal didn't approved more than half of the business");
+        require(proposedCar.approvalState > (participantsAddresses.length / 2), "The proposal didn't approved more than half of the business");
         balance -= proposedCar.price;
         if(!carDealer.send(proposedCar.price)){
             balance += proposedCar.price;
@@ -195,7 +190,7 @@ contract TaxiBusiness {
     function repurchaseCarPropose(uint32 id, uint price, uint validTime) public isCarDealer{
         require(carID == id, "This is not the businesses car");
         proposedRepurchase = Proposal(id, price, validTime, 0);
-         for(uint i = 0; i < participantCount; i++){
+         for(uint i = 0; i < participantsAddresses.length; i++){
             repurchaseVotes[participantsAddresses[i]] = false;
         }
     }
@@ -216,7 +211,7 @@ contract TaxiBusiness {
      */
     function repurchaseCar() public payable isCarDealer {
         require(block.timestamp <= proposedRepurchase.validTime, "The valid time exceeded");
-        require(proposedRepurchase.approvalState >= (participantCount / 2) + 1, "The proposal didn't approved more than half of the business");
+        require(proposedRepurchase.approvalState > (participantsAddresses.length / 2), "The proposal didn't approved more than half of the business");
         require(msg.value >= proposedRepurchase.price, "The sent ether is not enough");
         uint refund =  msg.value - proposedRepurchase.price;
         if(refund > 0) msg.sender.transfer(refund);
@@ -232,7 +227,7 @@ contract TaxiBusiness {
     function proposeDriver(address payable driverAddress, uint salary) public isManager{
         require(!taxiDriver.isApproved, "There is a taxi driver already!");
         taxiDriver = Driver(driverAddress, salary, 0, 0, false, block.timestamp);
-         for(uint i = 0; i < participantCount; i++){
+         for(uint i = 0; i < participantsAddresses.length; i++){
             driverVotes[participantsAddresses[i]] = false;
         }
     }
@@ -254,7 +249,7 @@ contract TaxiBusiness {
     function setDriver() public isManager {
         require(!taxiDriver.isApproved, "There is a taxi driver already!");
         require(taxiDriver.id != address(0), "There is no driver");
-        require(taxiDriver.approvalState >=  (participantCount / 2) + 1, "The driver didn't approved more than half of the business");
+        require(taxiDriver.approvalState > (participantsAddresses.length / 2), "The driver didn't approved more than half of the business");
         taxiDriver.isApproved = true;
     }
     
@@ -299,9 +294,10 @@ contract TaxiBusiness {
      */
     function getSalary() public isDriver {
         require(taxiDriver.currentBalance > 0, "There is no ether in driver balance");
-        if(!taxiDriver.id.send(taxiDriver.currentBalance)){
-            revert();
-        }
+        taxiDriver.id.transfer(taxiDriver.currentBalance);
+        // if(!taxiDriver.id.send(taxiDriver.currentBalance)){
+        //     revert();
+        // }
         taxiDriver.currentBalance = 0;
     }
     
@@ -328,11 +324,12 @@ contract TaxiBusiness {
     function payDividend() public isManager {
         require(block.timestamp - lastDividentPay >= 15778463, "Dividends paid already");
         require(balance > 0, "Not enough balance");
-        uint dividend = balance / participantCount;
-        for(uint i = 0; i < participantCount; i++){
+        require(balance > participationFee * participantsAddresses.length, "There is no profit right now");
+        uint dividend = (balance - (participationFee * participantsAddresses.length)) / participantsAddresses.length;
+        for(uint i = 0; i < participantsAddresses.length; i++){
             participants[participantsAddresses[i]].balance += dividend;
-            balance -= dividend;
         }
+        balance = 0;
         lastDividentPay = block.timestamp;
     }
     
