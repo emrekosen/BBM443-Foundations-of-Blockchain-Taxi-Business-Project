@@ -215,9 +215,9 @@ contract TaxiBusiness {
      * only car dealer can call this function
      */
     function repurchaseCar() public payable isCarDealer {
-        require(msg.value >= proposedRepurchase.price, "The sent ether is not enough");
         require(block.timestamp <= proposedRepurchase.validTime, "The valid time exceeded");
         require(proposedRepurchase.approvalState >= (participantCount / 2) + 1, "The proposal didn't approved more than half of the business");
+        require(msg.value >= proposedRepurchase.price, "The sent ether is not enough");
         uint refund =  msg.value - proposedRepurchase.price;
         if(refund > 0) msg.sender.transfer(refund);
         balance += msg.value - refund;
